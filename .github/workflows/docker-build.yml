@@ -1,0 +1,38 @@
+name: Build Kong Docker Image
+
+on:
+  workflow_dispatch:  # Manual trigger
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly on Sunday at midnight UTC
+  push:
+    branches: [ main ]
+    paths:
+      - 'Dockerfile'
+      - '.github/workflows/docker-build.yml'
+
+jobs:
+  build-and-push:
+    environment: DOCKERHUB
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      
+    - name: Login to DockerHub
+      uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+        
+    - name: Build and push
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        push: true
+        tags: |
+          hewenyulucky/kong:3.9.0-ubuntu
+          hewenyulucky/kong:latest
+        build-args: |
+          PYTHON_VERSION=3.11
+          CUDA_VERSION=12.4.1 

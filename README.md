@@ -29,6 +29,21 @@ plugins = bundled,jwt-redis-validator,jwt-http-validator
 
 3. 重启Kong服务
 
+### Docker构建
+
+本项目提供了Dockerfile和docker-compose.yml，可以快速构建和部署包含自定义插件的Kong容器：
+
+```bash
+# 构建并启动Kong容器
+docker-compose up -d
+
+# 查看容器状态
+docker-compose ps
+
+# 停止并删除容器
+docker-compose down
+```
+
 ### jwt-redis-validator 插件
 
 通过Redis验证JWT令牌的有效性。
@@ -61,6 +76,27 @@ curl -X POST http://localhost:8001/services/{service}/plugins \
   --data "config.token_key_prefix=jwt_token:"
 ```
 
+#### Redis中的令牌存储格式
+
+在Redis中，令牌应该以以下格式存储：
+
+```
+{token_key_prefix}{token} = 1
+```
+
+例如，如果token_key_prefix为"jwt_token:"，JWT令牌为"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."，
+则在Redis中应该存在以下键：
+
+```
+jwt_token:eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9... = 1
+```
+
+可以设置过期时间，以便令牌自动失效：
+
+```
+redis-cli> SET jwt_token:eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9... 1 EX 3600
+```
+
 ### jwt-http-validator 插件
 
 通过HTTP调用后端服务验证JWT令牌的有效性。
@@ -90,6 +126,36 @@ curl -X POST http://localhost:8001/services/{service}/plugins \
   --data "config.http_endpoint=http://auth-service/validate-token" \
   --data "config.http_method=POST" \
   --data "config.timeout=5000"
+```
+
+#### HTTP验证服务请求格式
+
+当http_method为"POST"时，插件会向HTTP端点发送以下JSON格式：
+
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "jwt": {
+    "header": {
+      "alg": "HS256",
+      "typ": "JWT"
+    },
+    "claims": {
+      "sub": "1234567890",
+      "name": "John Doe",
+      "iat": 1516239022
+    },
+    "signature": "...",
+    "key_claim_name": "iss",
+    "key_claim_value": "your-service"
+  }
+}
+```
+
+当http_method为"GET"时，插件会将令牌作为查询参数发送：
+
+```
+GET http://auth-service/validate-token?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
 #### HTTP验证服务响应格式
