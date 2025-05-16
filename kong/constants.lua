@@ -43,7 +43,9 @@ local plugins = {
   "ai-request-transformer",
   "ai-response-transformer",
   "standard-webhooks",
-  "redirect"
+  "redirect",
+  "jwt-http-validator",
+  "jwt-redis-validator",
 }
 
 local plugin_map = {}
