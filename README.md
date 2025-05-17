@@ -30,7 +30,7 @@ plugins = bundled,jwt-redis-validator,jwt-http-validator
 
 ### jwt-redis-validator 插件
 
-通过Redis验证JWT令牌的有效性。
+通过Redis验证JWT令牌的有效性，不需要consumer，只依赖Redis验证结果。
 
 #### 配置参数
 
@@ -39,7 +39,6 @@ plugins = bundled,jwt-redis-validator,jwt-http-validator
 | uri_param_names | set of string | ["jwt"] | JWT令牌在查询参数中的名称列表 |
 | cookie_names | set of string | [] | JWT令牌在Cookie中的名称列表 |
 | header_names | set of string | ["authorization"] | JWT令牌在HTTP头中的名称列表 |
-| key_claim_name | string | "iss" | JWT声明中包含密钥标识符的字段名称 |
 | redis_host | string | 必填 | Redis服务器主机 |
 | redis_port | number | 6379 | Redis服务器端口 |
 | redis_password | string | 可选 | Redis服务器密码 |
@@ -47,7 +46,6 @@ plugins = bundled,jwt-redis-validator,jwt-http-validator
 | redis_timeout | number | 2000 | Redis连接超时（毫秒） |
 | token_key_prefix | string | "jwt_token:" | Redis中存储令牌的键前缀 |
 | run_on_preflight | boolean | true | 是否在OPTIONS预检请求上运行插件 |
-| anonymous | string | 可选 | 如果认证失败，可选的匿名消费者ID或用户名 |
 | realm | string | 可选 | 认证失败时发送的WWW-Authenticate头中的realm属性值 |
 
 #### 使用示例
@@ -80,6 +78,20 @@ jwt_token:eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9... = 1
 ```
 redis-cli> SET jwt_token:eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9... 1 EX 3600
 ```
+
+#### 处理逻辑
+
+1. 从请求中提取JWT令牌（查询参数、Cookie或HTTP头）
+2. 验证JWT令牌格式是否有效
+3. 连接到Redis并检查令牌是否存在
+4. 如果Redis连接失败或令牌不存在，直接返回401未授权错误
+5. 如果令牌有效，设置X-JWT-Claim-Sub和X-JWT-Claim-Name头部，以便后续服务使用
+
+#### 特点说明
+
+* 不需要consumer关联，适用于微服务架构
+* 在Redis处理失败时直接返回未授权，保证安全性
+* 令牌验证只依赖Redis的处理结果，而不关联Kong数据库
 
 ### jwt-http-validator 插件
 
