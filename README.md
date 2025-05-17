@@ -39,6 +39,7 @@ plugins = bundled,jwt-redis-validator,jwt-http-validator
 | uri_param_names | set of string | ["jwt"] | JWT令牌在查询参数中的名称列表 |
 | cookie_names | set of string | [] | JWT令牌在Cookie中的名称列表 |
 | header_names | set of string | ["authorization"] | JWT令牌在HTTP头中的名称列表 |
+| key_claim_name | string | "iss" | JWT声明中包含密钥标识符的字段名称，用于基础格式验证 |
 | redis_host | string | 必填 | Redis服务器主机 |
 | redis_port | number | 6379 | Redis服务器端口 |
 | redis_password | string | 可选 | Redis服务器密码 |
@@ -82,13 +83,14 @@ redis-cli> SET jwt_token:eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9... 1 EX 3600
 #### 处理逻辑
 
 1. 从请求中提取JWT令牌（查询参数、Cookie或HTTP头）
-2. 验证JWT令牌格式是否有效
+2. 验证JWT令牌格式是否有效，检查令牌中是否包含必要的key_claim_name字段
 3. 连接到Redis并检查令牌是否存在
 4. 如果Redis连接失败或令牌不存在，直接返回401未授权错误
 5. 如果令牌有效，设置X-JWT-Claim-Sub和X-JWT-Claim-Name头部，以便后续服务使用
 
 #### 特点说明
 
+* 对JWT令牌进行基础格式验证，确保包含必要字段
 * 不需要consumer关联，适用于微服务架构
 * 在Redis处理失败时直接返回未授权，保证安全性
 * 令牌验证只依赖Redis的处理结果，而不关联Kong数据库

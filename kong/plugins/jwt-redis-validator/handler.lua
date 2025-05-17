@@ -157,6 +157,14 @@ local function do_authentication(conf)
   local claims = jwt.claims
   local header = jwt.header
 
+  -- 基础格式验证，检查key_claim_name字段
+  local jwt_secret_key = claims[conf.key_claim_name] or header[conf.key_claim_name]
+  if not jwt_secret_key then
+    return false, unauthorized("声明中没有必需的 '" .. conf.key_claim_name .. "' 字段", www_authenticate_with_error)
+  elseif jwt_secret_key == "" then
+    return false, unauthorized("声明中 '" .. conf.key_claim_name .. "' 字段无效", www_authenticate_with_error)
+  end
+
   -- 连接到Redis
   local red, err = connect_to_redis(conf)
   if not red then

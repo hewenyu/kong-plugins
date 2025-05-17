@@ -26,6 +26,11 @@ return {
               elements = { type = "string" },
               default = { "authorization" },
           }, },
+          { key_claim_name = { 
+              description = "JWT声明中包含密钥标识符的字段名称",
+              type = "string", 
+              default = "iss" 
+          }, },
           { redis_host = {
               description = "Redis服务器主机",
               type = "string",
