@@ -125,53 +125,6 @@ local function connect_to_redis(conf)
   return red
 end
 
--- 设置消费者信息
-local function set_consumer(consumer, credential, token)
-  -- 确保 consumer 和 credential 都不为 nil
-  if not consumer or not credential then
-    kong.log.err("Either consumer or credential is nil. Consumer: ", consumer, ", Credential: ", credential)
-    return nil, "either credential or consumer must be provided"
-  end
-  
-  kong.client.authenticate(consumer, credential)
-
-  local set_header = kong.service.request.set_header
-  local clear_header = kong.service.request.clear_header
-
-  if consumer and consumer.id then
-    set_header(constants.HEADERS.CONSUMER_ID, consumer.id)
-  else
-    clear_header(constants.HEADERS.CONSUMER_ID)
-  end
-
-  if consumer and consumer.custom_id then
-    set_header(constants.HEADERS.CONSUMER_CUSTOM_ID, consumer.custom_id)
-  else
-    clear_header(constants.HEADERS.CONSUMER_CUSTOM_ID)
-  end
-
-  if consumer and consumer.username then
-    set_header(constants.HEADERS.CONSUMER_USERNAME, consumer.username)
-  else
-    clear_header(constants.HEADERS.CONSUMER_USERNAME)
-  end
-
-  if credential and credential.key then
-    set_header(constants.HEADERS.CREDENTIAL_IDENTIFIER, credential.key)
-  else
-    clear_header(constants.HEADERS.CREDENTIAL_IDENTIFIER)
-  end
-
-  if credential then
-    clear_header(constants.HEADERS.ANONYMOUS)
-  else
-    set_header(constants.HEADERS.ANONYMOUS, true)
-  end
-
-  kong.ctx.shared.authenticated_jwt_token = token
-  return true
-end
-
 local function unauthorized(message, www_auth_content, errors)
   return { status = 401, message = message, headers = { ["WWW-Authenticate"] = www_auth_content }, errors = errors }
 end
@@ -195,7 +148,7 @@ local function do_authentication(conf)
     end
   end
 
-  -- 解码令牌以获取消费者信息
+  -- 解码令牌以验证其格式
   local jwt, err = jwt_decoder:new(token)
   if err then
     return false, unauthorized("无效令牌: " .. tostring(err), www_authenticate_with_error)
@@ -204,17 +157,10 @@ local function do_authentication(conf)
   local claims = jwt.claims
   local header = jwt.header
 
-  local jwt_secret_key = claims[conf.key_claim_name] or header[conf.key_claim_name]
-  if not jwt_secret_key then
-    return false, unauthorized("声明中没有必需的 '" .. conf.key_claim_name .. "' 字段", www_authenticate_with_error)
-  elseif jwt_secret_key == "" then
-    return false, unauthorized("声明中 '" .. conf.key_claim_name .. "' 字段无效", www_authenticate_with_error)
-  end
-
   -- 连接到Redis
   local red, err = connect_to_redis(conf)
   if not red then
-    return false, unauthorized("无法验证令牌: " .. tostring(err), www_authenticate_with_error)
+    return false, unauthorized("无法验证令牌: Redis连接失败", www_authenticate_with_error)
   end
 
   -- 在Redis中检查令牌是否有效
@@ -222,7 +168,12 @@ local function do_authentication(conf)
   local exists, err = red:exists(token_key)
   if err then
     kong.log.err("Redis查询错误: ", err)
-    return false, unauthorized("无法验证令牌: " .. tostring(err), www_authenticate_with_error)
+    -- 在Redis处理失败的情况下直接返回没有权限
+    local ok, err = red:set_keepalive(10000, 100)
+    if not ok then
+      kong.log.err("无法将Redis连接放回连接池: ", err)
+    end
+    return false, unauthorized("无法验证令牌: Redis查询失败", www_authenticate_with_error)
   end
 
   -- 将连接放回连接池
@@ -236,98 +187,17 @@ local function do_authentication(conf)
     return false, unauthorized("令牌已失效或不存在", www_authenticate_with_error)
   end
 
-  -- 获取消费者信息
-  local consumer_cache_key = "redis_jwt_consumer:" .. jwt_secret_key
-  local consumer, err = kong.cache:get(consumer_cache_key, nil, function()
-    -- 这里可以实现从数据库获取消费者信息的逻辑
-    -- 简化起见，我们直接使用JWT中的信息
-    local consumer_id = claims.sub or jwt_secret_key
-    return {
-      id = consumer_id,
-      username = claims.name or consumer_id,
-      custom_id = claims.custom_id
-    }
-  end)
-
-  if err then
-    return error(err)
-  end
-
-  -- 如果无法找到消费者
-  if not consumer then
-    return false, {
-      status = 401,
-      message = fmt("找不到与 '%s=%s' 相关的消费者", conf.key_claim_name, jwt_secret_key)
-    }
-  end
-
-  -- 确保credential包含必要的信息
-  local credential = {
-    key = jwt_secret_key,
-    id = jwt_secret_key -- 添加id字段，确保credential有效
-  }
-
-  -- 设置消费者并检查错误
-  local ok, err = set_consumer(consumer, credential, token)
-  if not ok then
-    return false, unauthorized("认证失败: " .. tostring(err), www_authenticate_with_error)
-  end
-
-  return true
-end
-
-local function set_anonymous_consumer(anonymous)
-  local consumer_cache_key = kong.db.consumers:cache_key(anonymous)
-  local consumer, err = kong.cache:get(consumer_cache_key, nil,
-                                        kong.client.load_consumer,
-                                        anonymous, true)
-  if err then
-    return error(err)
-  end
-
-  if not consumer then
-    kong.log.err("未找到匿名消费者: ", anonymous)
-    return nil, "未找到匿名消费者"
-  end
-
-  -- 为匿名消费者创建一个空的credential
-  local credential = {
-    id = "anonymous",
-    key = "anonymous"
-  }
-
-  local ok, err = set_consumer(consumer, credential, nil)
-  if not ok then
-    kong.log.err("设置匿名消费者失败: ", err)
-    return nil, err
+  -- 设置一些有用的头部
+  local set_header = kong.service.request.set_header
+  set_header("X-JWT-Claim-Sub", claims.sub or "")
+  if claims.name then
+    set_header("X-JWT-Claim-Name", claims.name)
   end
   
+  -- 存储已验证的令牌以供后续使用
+  kong.ctx.shared.authenticated_jwt_token = token
+  
   return true
-end
-
--- 当conf.anonymous启用时，我们处于"逻辑OR"认证流程中
-local function logical_OR_authentication(conf)
-  if kong.client.get_credential() then
-    -- 我们已经通过认证，并且在认证方法之间处于"逻辑OR"关系 -- 提前退出
-    return
-  end
-
-  local ok, _ = do_authentication(conf)
-  if not ok then
-    local ok, err = set_anonymous_consumer(conf.anonymous)
-    if not ok then
-      kong.log.err("无法设置匿名消费者: ", err)
-      return kong.response.exit(401, { message = "未授权" })
-    end
-  end
-end
-
--- 当conf.anonymous未设置时，我们处于"逻辑AND"认证流程中
-local function logical_AND_authentication(conf)
-  local ok, err = do_authentication(conf)
-  if not ok then
-    return kong.response.exit(err.status, err.errors or { message = err.message }, err.headers)
-  end
 end
 
 function JwtRedisValidatorHandler:access(conf)
@@ -336,10 +206,9 @@ function JwtRedisValidatorHandler:access(conf)
     return
   end
 
-  if conf.anonymous then
-    return logical_OR_authentication(conf)
-  else
-    return logical_AND_authentication(conf)
+  local ok, err = do_authentication(conf)
+  if not ok then
+    return kong.response.exit(err.status, err.errors or { message = err.message }, err.headers)
   end
 end
 

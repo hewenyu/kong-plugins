@@ -26,11 +26,6 @@ return {
               elements = { type = "string" },
               default = { "authorization" },
           }, },
-          { key_claim_name = { 
-              description = "JWT声明中包含密钥标识符的字段名称",
-              type = "string", 
-              default = "iss" 
-          }, },
           { redis_host = {
               description = "Redis服务器主机",
               type = "string",
@@ -66,10 +61,6 @@ return {
               type = "boolean", 
               required = true, 
               default = true 
-          }, },
-          { anonymous = { 
-              description = "如果认证失败，可选的匿名消费者ID或用户名", 
-              type = "string" 
           }, },
           { realm = { 
               description = "认证失败时发送的WWW-Authenticate头中的realm属性值", 
