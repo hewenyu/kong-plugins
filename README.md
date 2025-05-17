@@ -27,22 +27,6 @@ rm -rf kong-3.9.0*
 plugins = bundled,jwt-redis-validator,jwt-http-validator
 ```
 
-3. 重启Kong服务
-
-### Docker构建
-
-本项目提供了Dockerfile和docker-compose.yml，可以快速构建和部署包含自定义插件的Kong容器：
-
-```bash
-# 构建并启动Kong容器
-docker-compose up -d
-
-# 查看容器状态
-docker-compose ps
-
-# 停止并删除容器
-docker-compose down
-```
 
 ### jwt-redis-validator 插件
 

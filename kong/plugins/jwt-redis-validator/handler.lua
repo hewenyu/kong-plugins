@@ -127,6 +127,12 @@ end
 
 -- 设置消费者信息
 local function set_consumer(consumer, credential, token)
+  -- 确保 consumer 和 credential 都不为 nil
+  if not consumer or not credential then
+    kong.log.err("Either consumer or credential is nil. Consumer: ", consumer, ", Credential: ", credential)
+    return nil, "either credential or consumer must be provided"
+  end
+  
   kong.client.authenticate(consumer, credential)
 
   local set_header = kong.service.request.set_header
@@ -163,6 +169,7 @@ local function set_consumer(consumer, credential, token)
   end
 
   kong.ctx.shared.authenticated_jwt_token = token
+  return true
 end
 
 local function unauthorized(message, www_auth_content, errors)
@@ -254,11 +261,17 @@ local function do_authentication(conf)
     }
   end
 
+  -- 确保credential包含必要的信息
   local credential = {
-    key = jwt_secret_key
+    key = jwt_secret_key,
+    id = jwt_secret_key -- 添加id字段，确保credential有效
   }
 
-  set_consumer(consumer, credential, token)
+  -- 设置消费者并检查错误
+  local ok, err = set_consumer(consumer, credential, token)
+  if not ok then
+    return false, unauthorized("认证失败: " .. tostring(err), www_authenticate_with_error)
+  end
 
   return true
 end
@@ -272,7 +285,24 @@ local function set_anonymous_consumer(anonymous)
     return error(err)
   end
 
-  set_consumer(consumer)
+  if not consumer then
+    kong.log.err("未找到匿名消费者: ", anonymous)
+    return nil, "未找到匿名消费者"
+  end
+
+  -- 为匿名消费者创建一个空的credential
+  local credential = {
+    id = "anonymous",
+    key = "anonymous"
+  }
+
+  local ok, err = set_consumer(consumer, credential, nil)
+  if not ok then
+    kong.log.err("设置匿名消费者失败: ", err)
+    return nil, err
+  end
+  
+  return true
 end
 
 -- 当conf.anonymous启用时，我们处于"逻辑OR"认证流程中
@@ -284,7 +314,11 @@ local function logical_OR_authentication(conf)
 
   local ok, _ = do_authentication(conf)
   if not ok then
-    set_anonymous_consumer(conf.anonymous)
+    local ok, err = set_anonymous_consumer(conf.anonymous)
+    if not ok then
+      kong.log.err("无法设置匿名消费者: ", err)
+      return kong.response.exit(401, { message = "未授权" })
+    end
   end
 end
 
