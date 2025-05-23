@@ -31,31 +31,6 @@ return {
               type = "string", 
               default = "iss" 
           }, },
-          { redis_host = {
-              description = "Redis服务器主机",
-              type = "string",
-              required = true,
-          }, },
-          { redis_port = {
-              description = "Redis服务器端口",
-              type = "number",
-              default = 6379,
-          }, },
-          { redis_password = {
-              description = "Redis服务器密码（可选）",
-              type = "string",
-              required = false,
-          }, },
-          { redis_database = {
-              description = "Redis数据库索引",
-              type = "number",
-              default = 0,
-          }, },
-          { redis_timeout = {
-              description = "Redis连接超时（毫秒）",
-              type = "number",
-              default = 2000,
-          }, },
           { token_key_prefix = {
               description = "Redis中存储令牌的键前缀",
               type = "string",

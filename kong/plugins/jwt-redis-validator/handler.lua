@@ -93,20 +93,47 @@ local function retrieve_tokens(conf)
   return tokens
 end
 
--- 连接到Redis
-local function connect_to_redis(conf)
-  local red = redis:new()
-  red:set_timeout(conf.redis_timeout)
+-- 获取Kong配置中的Redis设置
+local function get_redis_config()
+  local config = kong.configuration
   
-  local ok, err = red:connect(conf.redis_host, conf.redis_port)
+  -- 检查Kong配置中是否有jwt-redis_前缀的Redis配置
+  if not config["jwt-redis_host"] then
+    kong.log.err("Kong配置中缺少Redis配置，请设置 jwt-redis_host 配置")
+    return nil, "Kong配置中缺少Redis配置"
+  end
+  
+  -- 使用jwt-redis_前缀的配置
+  return {
+    host = config["jwt-redis_host"] or "127.0.0.1",
+    port = tonumber(config["jwt-redis_port"] or 6379),
+    password = config["jwt-redis_password"],
+    database = tonumber(config["jwt-redis_database"] or 0),
+    timeout = tonumber(config["jwt-redis_timeout"] or 2000)
+  }
+end
+
+-- 连接到Redis
+local function connect_to_redis()
+  local red = redis:new()
+  
+  -- 获取Redis配置
+  local redis_config, err = get_redis_config()
+  if not redis_config then
+    return nil, err
+  end
+  
+  red:set_timeout(redis_config.timeout)
+  
+  local ok, err = red:connect(redis_config.host, redis_config.port)
   if not ok then
     kong.log.err("无法连接到Redis: ", err)
     return nil, err
   end
   
   -- 如果提供了密码，则进行认证
-  if conf.redis_password and conf.redis_password ~= "" then
-    local ok, err = red:auth(conf.redis_password)
+  if redis_config.password and redis_config.password ~= "" then
+    local ok, err = red:auth(redis_config.password)
     if not ok then
       kong.log.err("Redis认证失败: ", err)
       return nil, err
@@ -114,8 +141,8 @@ local function connect_to_redis(conf)
   end
   
   -- 选择数据库
-  if conf.redis_database > 0 then
-    local ok, err = red:select(conf.redis_database)
+  if redis_config.database > 0 then
+    local ok, err = red:select(redis_config.database)
     if not ok then
       kong.log.err("无法选择Redis数据库: ", err)
       return nil, err
@@ -166,7 +193,7 @@ local function do_authentication(conf)
   end
 
   -- 连接到Redis
-  local red, err = connect_to_redis(conf)
+  local red, err = connect_to_redis()
   if not red then
     return false, unauthorized("无法验证令牌: Redis连接失败", www_authenticate_with_error)
   end

@@ -27,6 +27,21 @@ rm -rf kong-3.9.0*
 plugins = bundled,jwt-redis-validator,jwt-http-validator
 ```
 
+### Kong配置文件设置
+
+为了简化配置，jwt-redis-validator 插件从 Kong 的配置文件中读取 Redis 配置，而不是在插件配置中设置。
+在 kong.conf 文件中添加以下配置：
+
+```
+# JWT Redis 验证器插件的配置
+jwt-redis_host = "127.0.0.1"         # Redis 主机
+jwt-redis_port = 6379                # Redis 端口
+jwt-redis_password = "your_password" # Redis 密码
+jwt-redis_database = 0               # Redis 数据库索引
+jwt-redis_timeout = 2000             # Redis 连接超时（毫秒）
+```
+
+您可以参考项目中的 [kong.conf.example](./devops/kong.conf.example) 文件获取完整的配置示例。
 
 ### jwt-redis-validator 插件
 
@@ -40,11 +55,6 @@ plugins = bundled,jwt-redis-validator,jwt-http-validator
 | cookie_names | set of string | [] | JWT令牌在Cookie中的名称列表 |
 | header_names | set of string | ["authorization"] | JWT令牌在HTTP头中的名称列表 |
 | key_claim_name | string | "iss" | JWT声明中包含密钥标识符的字段名称，用于基础格式验证 |
-| redis_host | string | 必填 | Redis服务器主机 |
-| redis_port | number | 6379 | Redis服务器端口 |
-| redis_password | string | 可选 | Redis服务器密码 |
-| redis_database | number | 0 | Redis数据库索引 |
-| redis_timeout | number | 2000 | Redis连接超时（毫秒） |
 | token_key_prefix | string | "jwt_token:" | Redis中存储令牌的键前缀 |
 | run_on_preflight | boolean | true | 是否在OPTIONS预检请求上运行插件 |
 | realm | string | 可选 | 认证失败时发送的WWW-Authenticate头中的realm属性值 |
@@ -54,8 +64,6 @@ plugins = bundled,jwt-redis-validator,jwt-http-validator
 ```
 curl -X POST http://localhost:8001/services/{service}/plugins \
   --data "name=jwt-redis-validator" \
-  --data "config.redis_host=127.0.0.1" \
-  --data "config.redis_port=6379" \
   --data "config.token_key_prefix=jwt_token:"
 ```
 
@@ -84,9 +92,10 @@ redis-cli> SET jwt_token:eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9... 1 EX 3600
 
 1. 从请求中提取JWT令牌（查询参数、Cookie或HTTP头）
 2. 验证JWT令牌格式是否有效，检查令牌中是否包含必要的key_claim_name字段
-3. 连接到Redis并检查令牌是否存在
-4. 如果Redis连接失败或令牌不存在，直接返回401未授权错误
-5. 如果令牌有效，设置X-JWT-Claim-Sub和X-JWT-Claim-Name头部，以便后续服务使用
+3. 从Kong配置文件中读取Redis配置并连接到Redis
+4. 检查令牌是否存在于Redis中
+5. 如果Redis连接失败或令牌不存在，直接返回401未授权错误
+6. 如果令牌有效，设置X-JWT-Claim-Sub和X-JWT-Claim-Name头部，以便后续服务使用
 
 #### 特点说明
 
@@ -94,6 +103,7 @@ redis-cli> SET jwt_token:eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9... 1 EX 3600
 * 不需要consumer关联，适用于微服务架构
 * 在Redis处理失败时直接返回未授权，保证安全性
 * 令牌验证只依赖Redis的处理结果，而不关联Kong数据库
+* Redis配置集中在Kong配置文件中管理，使用简单直观的配置格式
 
 ### jwt-http-validator 插件
 
