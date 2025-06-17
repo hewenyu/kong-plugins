@@ -30,7 +30,7 @@ jobs:
     - name: Build and push
       uses: docker/build-push-action@v4
       with:
-        context: /kong-plugins-configs
+        context: ./kong-plugins-configs
         push: true
         tags: |
           hewenyulucky/kong-configs:latest
