@@ -17,6 +17,8 @@ local JwtRedisValidatorHandler = {
   PRIORITY = 1450, -- 与官方JWT插件相同的优先级
 }
 
+local cached_redis_config
+
 --- 从请求中获取JWT令牌
 -- 检查URI参数、Cookie和配置的header_names中的JWT
 -- @param conf 插件配置
@@ -25,7 +27,7 @@ local JwtRedisValidatorHandler = {
 local function retrieve_tokens(conf)
   local token_set = {}
   local args = kong.request.get_query()
-  for _, v in ipairs(conf.uri_param_names) do
+  for _, v in ipairs(conf.uri_param_names or {}) do
     local token = args[v] -- 可能是表
     if token then
       if type(token) == "table" then
@@ -41,7 +43,7 @@ local function retrieve_tokens(conf)
   end
 
   local var = ngx.var
-  for _, v in ipairs(conf.cookie_names) do
+  for _, v in ipairs(conf.cookie_names or {}) do
     local cookie = var["cookie_" .. v]
     if cookie and cookie ~= "" then
       token_set[cookie] = true
@@ -49,7 +51,7 @@ local function retrieve_tokens(conf)
   end
 
   local request_headers = kong.request.get_headers()
-  for _, v in ipairs(conf.header_names) do
+  for _, v in ipairs(conf.header_names or {}) do
     local token_header = request_headers[v]
     if token_header then
       if type(token_header) == "table" then
@@ -95,6 +97,10 @@ end
 
 -- 获取Kong配置中的Redis设置
 local function get_redis_config()
+  if cached_redis_config then
+    return cached_redis_config
+  end
+
   local config = kong.configuration
   
   -- 检查Kong配置中是否有jwt-redis_前缀的Redis配置
@@ -104,13 +110,14 @@ local function get_redis_config()
   end
   
   -- 使用jwt-redis_前缀的配置
-  return {
+  cached_redis_config = {
     host = config["jwt-redis_host"] or "127.0.0.1",
     port = tonumber(config["jwt-redis_port"] or 6379),
     password = config["jwt-redis_password"],
     database = tonumber(config["jwt-redis_database"] or 0),
     timeout = tonumber(config["jwt-redis_timeout"] or 2000)
   }
+  return cached_redis_config
 end
 
 -- 连接到Redis
