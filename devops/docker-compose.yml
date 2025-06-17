@@ -56,6 +56,19 @@ services:
     networks:
       - kong-net
 
+  kong-plugins-configs:
+    image: hewenyulucky/kong-configs:latest
+    container_name: kong-plugins-configs
+    restart: always
+    environment:
+      KONG_JWT_REDIS_HOST: kong-redis
+      KONG_JWT_REDIS_PORT: 6379
+      KONG_JWT_REDIS_PASSWORD: ${REDIS_PASSWORD:-kong}
+    ports:
+      - "8080:8080"
+    networks:
+      - kong-net
+
   kong:
     image: hewenyulucky/kong:${KONG_VERSION:-3.9.0-ubuntu}
     container_name: kong
@@ -63,6 +76,7 @@ services:
     depends_on:
       - kong-database
       - kong-redis
+      - kong-plugins-configs
     environment:
       KONG_DATABASE: postgres
       KONG_PG_HOST: kong-database
@@ -73,6 +87,8 @@ services:
       KONG_PROXY_ERROR_LOG: /dev/stderr
       KONG_ADMIN_ERROR_LOG: /dev/stderr
       KONG_ADMIN_LISTEN: 0.0.0.0:8001
+      KONG_PLUGINS: bundled,jwt-redis-validator
+      KONG_PLUGINS_JWT-REDIS-VALIDATOR_CONFIG_SERVICE_URL: http://kong-plugins-configs:8080/config
       KONG_PG_POOL_SIZE: 5
       KONG_PG_TIMEOUT: 5000
     ports:

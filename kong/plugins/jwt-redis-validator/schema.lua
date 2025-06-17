@@ -47,6 +47,11 @@ return {
               type = "string", 
               required = false 
           }, },
+          { config_service_url = {
+              description = "第三方配置服务的URL",
+              type = "string",
+              required = true
+          }, },
         },
       },
     },

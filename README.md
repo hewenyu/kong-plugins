@@ -27,21 +27,35 @@ rm -rf kong-3.9.0*
 plugins = bundled,jwt-redis-validator,jwt-http-validator
 ```
 
-### Kong配置文件设置
+### 插件配置
 
-为了简化配置，jwt-redis-validator 插件从 Kong 的配置文件中读取 Redis 配置，而不是在插件配置中设置。
-在 kong.conf 文件中添加以下配置：
+`jwt-redis-validator` 插件通过连接到一个外部配置服务来获取其所需的 Redis 连接信息。这种方法实现了配置的集中管理和动态更新。
 
+#### 启用插件和配置服务
+
+在您的 `docker-compose.yml` 或其他部署环境中，为Kong设置以下环境变量来启用插件并指定配置源：
+
+```yaml
+KONG_PLUGINS: bundled,jwt-redis-validator
+KONG_PLUGINS_JWT-REDIS-VALIDATOR_CONFIG_SERVICE_URL: http://kong-plugins-configs:8080/config
 ```
-# JWT Redis 验证器插件的配置
-jwt-redis_host = "127.0.0.1"         # Redis 主机
-jwt-redis_port = 6379                # Redis 端口
-jwt-redis_password = "your_password" # Redis 密码
-jwt-redis_database = 0               # Redis 数据库索引
-jwt-redis_timeout = 2000             # Redis 连接超时（毫秒）
-```
 
-您可以参考项目中的 [kong.conf.example](./devops/kong.conf.example) 文件获取完整的配置示例。
+*   `KONG_PLUGINS_JWT-REDIS-VALIDATOR_CONFIG_SERVICE_URL` **（必需）**: 指向您的配置服务。项目中提供了一个示例服务 `kong-plugins-configs`，其用法可参考 `devops/docker-compose.yml`。
+
+#### 配置服务规范
+
+配置服务必须提供一个GET接口（例如 `/config`），该接口返回一个包含以下键的JSON对象：
+
+```json
+{
+  "KONG_JWT_REDIS_HOST": "your-redis-host",
+  "KONG_JWT_REDIS_PORT": 6379,
+  "KONG_JWT_REDIS_PASSWORD": "your-redis-password",
+  "KONG_JWT_REDIS_DATABASE": 0,
+  "KONG_JWT_REDIS_TIMEOUT": 2000
+}
+```
+该JSON对象中的所有字段都是必需的，插件将使用这些值来连接到Redis。
 
 ### jwt-redis-validator 插件
 
@@ -58,9 +72,11 @@ jwt-redis_timeout = 2000             # Redis 连接超时（毫秒）
 | token_key_prefix | string | "jwt_token:" | Redis中存储令牌的键前缀 |
 | run_on_preflight | boolean | true | 是否在OPTIONS预检请求上运行插件 |
 | realm | string | 可选 | 认证失败时发送的WWW-Authenticate头中的realm属性值 |
+| config_service_url | string | **必填** | 第三方配置服务的URL，用于动态获取Redis配置。 |
 
 #### 使用示例
 
+启用此插件时，无需通过Admin API传递Redis配置，因为所有配置都来自配置服务。您只需启用插件即可：
 ```
 curl -X POST http://localhost:8001/services/{service}/plugins \
   --data "name=jwt-redis-validator" \
@@ -93,20 +109,20 @@ redis-cli> SET "jwt_token:f2fa5fe4-7634-4bdd-bad0-9d314cb7c26d" "eyJhbGciOiJIUzI
 
 1. 从请求中提取JWT令牌（查询参数、Cookie或HTTP头）。
 2. 解码JWT令牌，并根据 `key_claim_name` 配置提取对应声明的值（例如 `user_id` 的值）。
-3. 从Kong配置文件中读取Redis配置并连接到Redis。
-4. 使用 `token_key_prefix` 和提取的声明值构造Redis键。
-5. 从Redis中获取该键对应的值（即期望的JWT）。
-6. 比较从Redis获取的JWT与请求中的JWT是否完全一致。
-7. 如果Redis连接失败、键不存在或JWT不匹配，直接返回401未授权错误。
-8. 如果令牌有效，设置`X-JWT-Claim-*`头部，以便后续服务使用。
+3. 从插件配置的 `config_service_url` 获取Redis连接信息。
+4. 连接到Redis。
+5. 使用 `token_key_prefix` 和提取的声明值构造Redis键。
+6. 从Redis中获取该键对应的值（即期望的JWT）。
+7. 比较从Redis获取的JWT与请求中的JWT是否完全一致。
+8. 如果Redis连接失败、键不存在或JWT不匹配，直接返回401未授权错误。
+9. 如果令牌有效，设置`X-JWT-Claim-*`头部，以便后续服务使用。
 
 #### 特点说明
 
 *   对JWT令牌进行基础格式验证，并根据指定声明（claim）从Redis中检索验证。
 *   不需要consumer关联，适用于微服务架构。
 *   在Redis处理失败、令牌不存在或不匹配时直接返回未授权，保证安全性。
-*   令牌验证依赖于Redis中存储的JWT与请求JWT的比对结果。
-*   Redis配置集中在Kong配置文件中管理，使用简单直观的配置格式。
+*   通过外部服务动态配置Redis，实现配置和代码分离。
 
 ### jwt-http-validator 插件
 

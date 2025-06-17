@@ -2,6 +2,8 @@ local constants = require "kong.constants"
 local jwt_decoder = require "kong.plugins.jwt.jwt_parser"
 local kong_meta = require "kong.meta"
 local redis = require "resty.redis"
+local http = require "resty.http"
+local cjson = require "cjson"
 
 local fmt = string.format
 local kong = kong
@@ -96,36 +98,63 @@ local function retrieve_tokens(conf)
 end
 
 -- 获取Kong配置中的Redis设置
-local function get_redis_config()
+local function get_redis_config(conf)
   if cached_redis_config then
     return cached_redis_config
   end
 
-  local config = kong.configuration
-  
-  -- 检查Kong配置中是否有jwt-redis_前缀的Redis配置
-  if not config["jwt-redis_host"] then
-    kong.log.err("Kong配置中缺少Redis配置，请设置 jwt-redis_host 配置")
-    return nil, "Kong配置中缺少Redis配置"
+  if not conf.config_service_url then
+    kong.log.err("插件配置中缺少 config_service_url")
+    return nil, "插件配置中缺少 config_service_url"
+  end
+
+  local httpc = http.new()
+  -- 使用pcall来安全地执行HTTP请求
+  local ok, res, err = pcall(httpc.request_uri, httpc, conf.config_service_url, {
+    method = "GET",
+    headers = { ["Accept"] = "application/json" },
+    timeout = 2000 -- 2秒超时
+  })
+
+  if not ok or not res then
+    kong.log.err("无法请求配置服务: ", err or "未知错误")
+    return nil, "无法请求配置服务"
+  end
+
+  if res.status ~= 200 then
+    kong.log.err("配置服务返回错误状态: ", res.status)
+    return nil, "配置服务返回错误状态 " .. res.status
+  end
+
+  local body, json_err = cjson.decode(res.body)
+  if not body then
+    kong.log.err("无法解析配置服务的响应: ", json_err)
+    return nil, "无法解析配置服务的响应"
   end
   
-  -- 使用jwt-redis_前缀的配置
+  -- 从第三方服务获取的配置，并进行严格校验
+  local host = body["KONG_JWT_REDIS_HOST"]
+  if not host then
+    kong.log.err("配置服务响应中缺少 KONG_JWT_REDIS_HOST")
+    return nil, "配置服务响应中缺少 KONG_JWT_REDIS_HOST"
+  end
+  
   cached_redis_config = {
-    host = config["jwt-redis_host"] or "127.0.0.1",
-    port = tonumber(config["jwt-redis_port"] or 6379),
-    password = config["jwt-redis_password"],
-    database = tonumber(config["jwt-redis_database"] or 0),
-    timeout = tonumber(config["jwt-redis_timeout"] or 2000)
+    host = host,
+    port = tonumber(body["KONG_JWT_REDIS_PORT"] or 6379),
+    password = body["KONG_JWT_REDIS_PASSWORD"],
+    database = tonumber(body["KONG_JWT_REDIS_DATABASE"] or 0),
+    timeout = tonumber(body["KONG_JWT_REDIS_TIMEOUT"] or 2000)
   }
   return cached_redis_config
 end
 
 -- 连接到Redis
-local function connect_to_redis()
+local function connect_to_redis(conf)
   local red = redis:new()
   
   -- 获取Redis配置
-  local redis_config, err = get_redis_config()
+  local redis_config, err = get_redis_config(conf)
   if not redis_config then
     return nil, err
   end
@@ -200,7 +229,7 @@ local function do_authentication(conf)
   end
 
   -- 连接到Redis
-  local red, err = connect_to_redis()
+  local red, err = connect_to_redis(conf)
   if not red then
     return false, unauthorized("无法验证令牌: Redis连接失败", www_authenticate_with_error)
   end
