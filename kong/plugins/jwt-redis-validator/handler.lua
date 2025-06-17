@@ -185,10 +185,10 @@ local function do_authentication(conf)
   local header = jwt.header
 
   -- 基础格式验证，检查key_claim_name字段
-  local jwt_secret_key = claims[conf.key_claim_name] or header[conf.key_claim_name]
-  if not jwt_secret_key then
+  local claim_value = claims[conf.key_claim_name] or header[conf.key_claim_name]
+  if not claim_value then
     return false, unauthorized("声明中没有必需的 '" .. conf.key_claim_name .. "' 字段", www_authenticate_with_error)
-  elseif jwt_secret_key == "" then
+  elseif claim_value == "" then
     return false, unauthorized("声明中 '" .. conf.key_claim_name .. "' 字段无效", www_authenticate_with_error)
   end
 
@@ -199,26 +199,23 @@ local function do_authentication(conf)
   end
 
   -- 在Redis中检查令牌是否有效
-  local token_key = conf.token_key_prefix .. token
-  local exists, err = red:exists(token_key)
+  local token_key = conf.token_key_prefix .. claim_value
+  local redis_token, err = red:get(token_key)
+
+  -- 无论成功与否，都尝试将连接放回连接池
+  local ok, keepalive_err = red:set_keepalive(10000, 100)
+  if not ok then
+    kong.log.err("无法将Redis连接放回连接池: ", keepalive_err)
+  end
+
+  -- 现在处理 get 命令的结果
   if err then
     kong.log.err("Redis查询错误: ", err)
-    -- 在Redis处理失败的情况下直接返回没有权限
-    local ok, err = red:set_keepalive(10000, 100)
-    if not ok then
-      kong.log.err("无法将Redis连接放回连接池: ", err)
-    end
     return false, unauthorized("无法验证令牌: Redis查询失败", www_authenticate_with_error)
   end
 
-  -- 将连接放回连接池
-  local ok, err = red:set_keepalive(10000, 100)
-  if not ok then
-    kong.log.err("无法将Redis连接放回连接池: ", err)
-  end
-
-  -- 如果令牌在Redis中不存在，则认为无效
-  if exists == 0 then
+  -- 如果令牌在Redis中不存在，或者与请求的令牌不匹配，则认为无效
+  if not redis_token or redis_token ~= token then
     return false, unauthorized("令牌已失效或不存在", www_authenticate_with_error)
   end
 
