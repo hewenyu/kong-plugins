@@ -2,7 +2,12 @@ name: Build Kong Configs Docker Image
 
 on:
   workflow_dispatch:  # Manual trigger
-
+  push:
+    branches: [ main ]
+    paths:
+      - 'Dockerfile'
+      - '.github/workflows/docker-build-configs.yml'
+      - 'kong-plugins-configs/**'  # Watch for changes in the configs directory
 jobs:
   build-and-push:
     environment: DOCKERHUB
@@ -11,7 +16,7 @@ jobs:
     # 从另外的仓库获取代码 
     steps:
     - name: Clone configs repository
-        run: |
+      run: |
           git clone https://github.com/hewenyu/kong-plugins-configs.git
           cd kong-plugins-configs
           echo "CONFIGS_COMMIT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
