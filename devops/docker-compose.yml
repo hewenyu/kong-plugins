@@ -1,5 +1,3 @@
-version: "3.8"
-
 networks:
   kong-net:
     driver: bridge
